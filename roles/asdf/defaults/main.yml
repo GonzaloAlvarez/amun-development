@@ -1,0 +1,22 @@
+---
+asdf_version: "0.20.0"
+asdf_repo: "asdf-vm/asdf"
+asdf_install_dir: ""
+asdf_data_dir: "{{ ansible_facts['env']['HOME'] }}/.asdf"
+asdf_manage_profile: true
+asdf_tools:
+  - name: nodejs
+    plugin_repo: "https://github.com/asdf-vm/asdf-nodejs.git"
+    version: "24.19.0"
+  - name: python
+    plugin_repo: "https://github.com/danhper/asdf-python.git"
+    version: "3.14.7"
+  - name: java
+    plugin_repo: "https://github.com/halcyon/asdf-java.git"
+    version: "temurin-25.0.4+7.0.LTS"
+  - name: golang
+    plugin_repo: "https://github.com/asdf-community/asdf-golang.git"
+    version: "1.26.6"
+  - name: rust
+    plugin_repo: "https://github.com/code-lever/asdf-rust.git"
+    version: "1.97.1"

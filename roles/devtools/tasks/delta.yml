@@ -1,0 +1,84 @@
+---
+- name: Map ansible_architecture to delta release triple
+  ansible.builtin.set_fact:
+    devtools_delta_triple: "{{ {'x86_64': 'x86_64-unknown-linux-gnu', 'aarch64': 'aarch64-unknown-linux-gnu', 'arm64': 'aarch64-unknown-linux-gnu'}[ansible_architecture] }}"
+
+- name: Compose delta release artifact name
+  ansible.builtin.set_fact:
+    devtools_delta_dirname: "delta-{{ devtools_delta_version }}-{{ devtools_delta_triple }}"
+    devtools_delta_tarball: "delta-{{ devtools_delta_version }}-{{ devtools_delta_triple }}.tar.gz"
+    devtools_delta_url: "https://github.com/{{ devtools_delta_repo }}/releases/download/{{ devtools_delta_version }}/delta-{{ devtools_delta_version }}-{{ devtools_delta_triple }}.tar.gz"
+    devtools_delta_api_url: "https://api.github.com/repos/{{ devtools_delta_repo }}/releases/tags/{{ devtools_delta_version }}"
+    devtools_delta_binary: "{{ devtools_delta_install_dir }}/delta"
+
+- name: Check installed delta version
+  ansible.builtin.command: "{{ devtools_delta_binary }} --version"
+  register: devtools_delta_check
+  changed_when: false
+  failed_when: false
+
+- name: Decide whether to install or update delta
+  ansible.builtin.set_fact:
+    devtools_delta_should_install: "{{ devtools_delta_check.rc != 0 or devtools_delta_version not in devtools_delta_check.stdout }}"
+
+- name: Fetch delta release metadata for checksum
+  ansible.builtin.uri:
+    url: "{{ devtools_delta_api_url }}"
+    return_content: true
+  register: devtools_delta_meta
+  when: devtools_delta_should_install
+
+- name: Read expected checksum for delta artifact
+  ansible.builtin.set_fact:
+    devtools_delta_digest: "{{ devtools_delta_meta.json.assets
+                               | selectattr('name', 'equalto', devtools_delta_tarball)
+                               | map(attribute='digest') | first | default('') }}"
+  when: devtools_delta_should_install
+
+- name: Verify delta checksum digest was found
+  ansible.builtin.assert:
+    that:
+      - devtools_delta_digest is match('^sha256:[0-9a-f]{64}$')
+    fail_msg: "could not locate sha256 digest for {{ devtools_delta_tarball }} in {{ devtools_delta_version }} release metadata"
+  when: devtools_delta_should_install
+
+- name: Create delta staging directory
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: delta
+  register: devtools_delta_stage
+  when: devtools_delta_should_install
+
+- name: Download delta tarball with checksum verification
+  ansible.builtin.get_url:
+    url: "{{ devtools_delta_url }}"
+    dest: "{{ devtools_delta_stage.path }}/{{ devtools_delta_tarball }}"
+    checksum: "{{ devtools_delta_digest }}"
+    mode: "0644"
+  when: devtools_delta_should_install
+
+- name: Extract delta tarball
+  ansible.builtin.command:
+    cmd: "tar -xzf {{ devtools_delta_tarball }}"
+    chdir: "{{ devtools_delta_stage.path }}"
+    creates: "{{ devtools_delta_stage.path }}/{{ devtools_delta_dirname }}/delta"
+  when: devtools_delta_should_install
+
+- name: Install delta binary
+  ansible.builtin.copy:
+    src: "{{ devtools_delta_stage.path }}/{{ devtools_delta_dirname }}/delta"
+    dest: "{{ devtools_delta_binary }}"
+    mode: "0755"
+    remote_src: true
+  become: true
+  when: devtools_delta_should_install
+
+- name: Clean up delta staging directory
+  ansible.builtin.file:
+    path: "{{ devtools_delta_stage.path }}"
+    state: absent
+  when: devtools_delta_should_install
+
+- name: Verify delta installation
+  ansible.builtin.command: "{{ devtools_delta_binary }} --version"
+  changed_when: false

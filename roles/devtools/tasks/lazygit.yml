@@ -1,0 +1,83 @@
+---
+- name: Map ansible_architecture to lazygit release arch
+  ansible.builtin.set_fact:
+    devtools_lazygit_arch: "{{ {'x86_64': 'x86_64', 'aarch64': 'arm64', 'arm64': 'arm64'}[ansible_architecture] }}"
+
+- name: Compose lazygit release artifact name
+  ansible.builtin.set_fact:
+    devtools_lazygit_tarball: "lazygit_{{ devtools_lazygit_version }}_linux_{{ devtools_lazygit_arch }}.tar.gz"
+    devtools_lazygit_url: "https://github.com/{{ devtools_lazygit_repo }}/releases/download/v{{ devtools_lazygit_version }}/lazygit_{{ devtools_lazygit_version }}_linux_{{ devtools_lazygit_arch }}.tar.gz"
+    devtools_lazygit_api_url: "https://api.github.com/repos/{{ devtools_lazygit_repo }}/releases/tags/v{{ devtools_lazygit_version }}"
+    devtools_lazygit_binary: "{{ devtools_lazygit_install_dir }}/lazygit"
+
+- name: Check installed lazygit version
+  ansible.builtin.command: "{{ devtools_lazygit_binary }} --version"
+  register: devtools_lazygit_check
+  changed_when: false
+  failed_when: false
+
+- name: Decide whether to install or update lazygit
+  ansible.builtin.set_fact:
+    devtools_lazygit_should_install: "{{ devtools_lazygit_check.rc != 0 or ('version=' + devtools_lazygit_version) not in devtools_lazygit_check.stdout }}"
+
+- name: Fetch lazygit release metadata for checksum
+  ansible.builtin.uri:
+    url: "{{ devtools_lazygit_api_url }}"
+    return_content: true
+  register: devtools_lazygit_meta
+  when: devtools_lazygit_should_install
+
+- name: Read expected checksum for lazygit artifact
+  ansible.builtin.set_fact:
+    devtools_lazygit_digest: "{{ devtools_lazygit_meta.json.assets
+                                 | selectattr('name', 'equalto', devtools_lazygit_tarball)
+                                 | map(attribute='digest') | first | default('') }}"
+  when: devtools_lazygit_should_install
+
+- name: Verify lazygit checksum digest was found
+  ansible.builtin.assert:
+    that:
+      - devtools_lazygit_digest is match('^sha256:[0-9a-f]{64}$')
+    fail_msg: "could not locate sha256 digest for {{ devtools_lazygit_tarball }} in v{{ devtools_lazygit_version }} release metadata"
+  when: devtools_lazygit_should_install
+
+- name: Create lazygit staging directory
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: lazygit
+  register: devtools_lazygit_stage
+  when: devtools_lazygit_should_install
+
+- name: Download lazygit tarball with checksum verification
+  ansible.builtin.get_url:
+    url: "{{ devtools_lazygit_url }}"
+    dest: "{{ devtools_lazygit_stage.path }}/{{ devtools_lazygit_tarball }}"
+    checksum: "{{ devtools_lazygit_digest }}"
+    mode: "0644"
+  when: devtools_lazygit_should_install
+
+- name: Extract lazygit tarball
+  ansible.builtin.command:
+    cmd: "tar -xzf {{ devtools_lazygit_tarball }}"
+    chdir: "{{ devtools_lazygit_stage.path }}"
+    creates: "{{ devtools_lazygit_stage.path }}/lazygit"
+  when: devtools_lazygit_should_install
+
+- name: Install lazygit binary
+  ansible.builtin.copy:
+    src: "{{ devtools_lazygit_stage.path }}/lazygit"
+    dest: "{{ devtools_lazygit_binary }}"
+    mode: "0755"
+    remote_src: true
+  become: true
+  when: devtools_lazygit_should_install
+
+- name: Clean up lazygit staging directory
+  ansible.builtin.file:
+    path: "{{ devtools_lazygit_stage.path }}"
+    state: absent
+  when: devtools_lazygit_should_install
+
+- name: Verify lazygit installation
+  ansible.builtin.command: "{{ devtools_lazygit_binary }} --version"
+  changed_when: false

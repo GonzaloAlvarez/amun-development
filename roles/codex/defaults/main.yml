@@ -1,0 +1,5 @@
+---
+codex_version: "0.147.0"
+codex_repo: "openai/codex"
+codex_install_dir: ""
+codex_install_become: true

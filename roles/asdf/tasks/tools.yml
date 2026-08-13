@@ -1,0 +1,43 @@
+---
+- name: Add asdf plugins
+  ansible.builtin.command: "{{ asdf_bin }} plugin add {{ item.name }} {{ item.plugin_repo }}"
+  args:
+    creates: "{{ asdf_data_dir }}/plugins/{{ item.name }}"
+  environment: "{{ asdf_cmd_env }}"
+  loop: "{{ asdf_tools }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Install tool versions
+  ansible.builtin.command: "{{ asdf_bin }} install {{ item.name }} {{ item.version }}"
+  args:
+    creates: "{{ asdf_data_dir }}/installs/{{ item.name }}/{{ item.version }}"
+  environment: "{{ asdf_cmd_env }}"
+  async: 3600
+  poll: 15
+  loop: "{{ asdf_tools }}"
+  loop_control:
+    label: "{{ item.name }} {{ item.version }}"
+
+- name: Set global tool versions
+  ansible.builtin.template:
+    src: tool-versions.j2
+    dest: "{{ ansible_facts['env']['HOME'] }}/.tool-versions"
+    mode: "0644"
+
+- name: Reshim installed tools
+  ansible.builtin.command: "{{ asdf_bin }} reshim"
+  environment: "{{ asdf_cmd_env }}"
+  changed_when: false
+
+- name: Verify toolchain shims
+  ansible.builtin.command: "{{ asdf_data_dir }}/shims/{{ item }}"
+  environment: "{{ asdf_cmd_env }}"
+  changed_when: false
+  loop:
+    - "node --version"
+    - "npm --version"
+    - "python --version"
+    - "java -version"
+    - "go version"
+    - "rustc --version"

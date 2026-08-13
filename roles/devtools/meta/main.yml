@@ -1,0 +1,23 @@
+---
+galaxy_info:
+  role_name: devtools
+  namespace: gonzaloalvarez
+  author: Gonzalo Alvarez
+  description: Install the modern CLI development kit (fzf, ripgrep, fd, bat, jq, htop, tmux, direnv, gh, lazygit, git-delta)
+  license: GPL-3.0
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+    - name: MacOSX
+      versions:
+        - all
+    - name: ArchLinux
+      versions:
+        - all
+dependencies: []

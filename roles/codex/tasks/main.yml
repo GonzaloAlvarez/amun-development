@@ -1,0 +1,108 @@
+---
+- name: Map system to codex release triple
+  ansible.builtin.set_fact:
+    codex_release_triple: "{{ {'Linux': {'x86_64': 'x86_64-unknown-linux-musl',
+                                         'aarch64': 'aarch64-unknown-linux-musl',
+                                         'arm64': 'aarch64-unknown-linux-musl'},
+                               'Darwin': {'x86_64': 'x86_64-apple-darwin',
+                                          'arm64': 'aarch64-apple-darwin'}}[ansible_system][ansible_architecture] }}"
+
+- name: Resolve default install directory when none provided
+  ansible.builtin.set_fact:
+    codex_install_dir: "{{ '/opt/homebrew/bin' if (ansible_system == 'Darwin' and ansible_architecture == 'arm64') else '/usr/local/bin' }}"
+  when: codex_install_dir | length == 0
+
+- name: Compose release artifact name
+  ansible.builtin.set_fact:
+    codex_release_tarball: "codex-{{ codex_release_triple }}.tar.gz"
+    codex_release_url: "https://github.com/{{ codex_repo }}/releases/download/rust-v{{ codex_version }}/codex-{{ codex_release_triple }}.tar.gz"
+    codex_release_api_url: "https://api.github.com/repos/{{ codex_repo }}/releases/tags/rust-v{{ codex_version }}"
+    codex_target_binary: "{{ codex_install_dir }}/codex"
+
+- name: Check installed codex version
+  ansible.builtin.command: "{{ codex_target_binary }} --version"
+  register: codex_installed_check
+  changed_when: false
+  failed_when: false
+
+- name: Decide whether to install or update
+  ansible.builtin.set_fact:
+    codex_should_install: "{{ codex_installed_check.rc != 0 or codex_version not in codex_installed_check.stdout }}"
+
+- name: Fetch release metadata for checksum
+  ansible.builtin.uri:
+    url: "{{ codex_release_api_url }}"
+    return_content: true
+  register: codex_release_meta
+  when: codex_should_install
+
+- name: Read expected checksum for this artifact
+  ansible.builtin.set_fact:
+    codex_expected_digest: "{{ codex_release_meta.json.assets
+                               | selectattr('name', 'equalto', codex_release_tarball)
+                               | map(attribute='digest') | first | default('') }}"
+  when: codex_should_install
+
+- name: Verify checksum digest was found
+  ansible.builtin.assert:
+    that:
+      - codex_expected_digest is match('^sha256:[0-9a-f]{64}$')
+    fail_msg: >-
+      could not locate sha256 digest for {{ codex_release_tarball }} in
+      rust-v{{ codex_version }} release metadata; the asset may not exist for
+      this platform (fallback: npm install -g @openai/codex)
+  when: codex_should_install
+
+- name: Create download staging directory
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: codex
+  register: codex_stage
+  when: codex_should_install
+
+- name: Download release tarball with checksum verification
+  ansible.builtin.get_url:
+    url: "{{ codex_release_url }}"
+    dest: "{{ codex_stage.path }}/{{ codex_release_tarball }}"
+    checksum: "{{ codex_expected_digest }}"
+    mode: "0644"
+  when: codex_should_install
+
+- name: Extract release tarball
+  ansible.builtin.command:
+    cmd: "tar -xzf {{ codex_release_tarball }}"
+    chdir: "{{ codex_stage.path }}"
+    creates: "{{ codex_stage.path }}/codex-{{ codex_release_triple }}"
+  when: codex_should_install
+
+- name: Ensure install directory exists
+  ansible.builtin.file:
+    path: "{{ codex_install_dir }}"
+    state: directory
+    mode: "0755"
+  become: "{{ codex_install_become }}"
+  when: codex_should_install
+
+- name: Install codex binary
+  ansible.builtin.copy:
+    src: "{{ codex_stage.path }}/codex-{{ codex_release_triple }}"
+    dest: "{{ codex_target_binary }}"
+    mode: "0755"
+    remote_src: true
+  become: "{{ codex_install_become }}"
+  when: codex_should_install
+
+- name: Clean up staging directory
+  ansible.builtin.file:
+    path: "{{ codex_stage.path }}"
+    state: absent
+  when: codex_should_install
+
+- name: Verify codex installation
+  ansible.builtin.command: "{{ codex_target_binary }} --version"
+  register: codex_version_check
+  changed_when: false
+
+- name: Show codex version
+  ansible.builtin.debug:
+    msg: "{{ codex_version_check.stdout }}"

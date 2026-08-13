@@ -1,0 +1,46 @@
+---
+devtools_lazygit_version: "0.64.1"
+devtools_lazygit_repo: "jesseduffield/lazygit"
+devtools_lazygit_install_dir: "/usr/local/bin"
+
+devtools_delta_version: "0.19.2"
+devtools_delta_repo: "dandavison/delta"
+devtools_delta_install_dir: "/usr/local/bin"
+
+# git-delta is not packaged in Debian stable — installed from GitHub releases
+devtools_debian_packages:
+  - fzf
+  - ripgrep
+  - fd-find
+  - bat
+  - jq
+  - htop
+  - tmux
+  - direnv
+  - gh
+
+devtools_arch_packages:
+  - fzf
+  - ripgrep
+  - fd
+  - bat
+  - jq
+  - htop
+  - tmux
+  - direnv
+  - github-cli
+  - lazygit
+  - git-delta
+
+# tmux comes from the amun base homebrew list on macOS
+devtools_darwin_packages:
+  - fzf
+  - ripgrep
+  - fd
+  - bat
+  - jq
+  - htop
+  - direnv
+  - gh
+  - lazygit
+  - git-delta

@@ -1,0 +1,7 @@
+---
+- hosts: all
+  roles:
+    - { role: asdf, become: false }
+    - { role: claude, become: false }
+    - { role: codex, become: false }
+    - { role: devtools, become: false }

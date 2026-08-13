@@ -1,0 +1,73 @@
+---
+# python compiles from source via python-build; nodejs/java/golang/rust ship
+# prebuilt archives but their plugins want curl/gpg/unzip/jq and sha tooling.
+- name: Install toolchain build dependencies (Debian)
+  ansible.builtin.apt:
+    name:
+      - build-essential
+      - curl
+      - git
+      - ca-certificates
+      - unzip
+      - jq
+      - gnupg
+      - dirmngr
+      - xz-utils
+      - libssl-dev
+      - zlib1g-dev
+      - libbz2-dev
+      - libreadline-dev
+      - libsqlite3-dev
+      - libffi-dev
+      - liblzma-dev
+      - libncurses-dev
+      - tk-dev
+      - uuid-dev
+      - libgdbm-dev
+    state: present
+    update_cache: true
+  become: true
+  retries: 5
+  delay: 5
+  register: apt_toolchain_deps
+  until: apt_toolchain_deps is success
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Install toolchain build dependencies (Arch)
+  community.general.pacman:
+    name:
+      - base-devel
+      - curl
+      - git
+      - unzip
+      - jq
+      - gnupg
+      - openssl
+      - zlib
+      - bzip2
+      - xz
+      - readline
+      - sqlite
+      - libffi
+      - ncurses
+      - tk
+      - gdbm
+    state: present
+    update_cache: true
+  become: true
+  when: ansible_facts['os_family'] == 'Archlinux'
+
+- name: Install toolchain build dependencies (macOS)
+  community.general.homebrew:
+    name:
+      - openssl@3
+      - readline
+      - sqlite3
+      - xz
+      - zlib
+      - tcl-tk
+      - gnupg
+      - jq
+      - coreutils
+    state: present
+  when: ansible_facts['os_family'] == 'Darwin'

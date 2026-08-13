@@ -1,0 +1,120 @@
+---
+- name: Verify
+  hosts: all
+  vars_files:
+    - ../../defaults/main.yml
+    - ../../../claude/defaults/main.yml
+    - ../../../codex/defaults/main.yml
+    - ../../../devtools/defaults/main.yml
+  vars:
+    verify_env:
+      PATH: "{{ asdf_data_dir }}/shims:/usr/local/bin:{{ ansible_facts['env']['PATH'] }}"
+      ASDF_DATA_DIR: "{{ asdf_data_dir }}"
+  tasks:
+    - name: Check asdf version
+      ansible.builtin.command: /usr/local/bin/asdf version
+      register: verify_asdf_version
+      changed_when: false
+
+    - name: Assert asdf version matches pin
+      ansible.builtin.assert:
+        that:
+          - asdf_version in verify_asdf_version.stdout
+
+    - name: List asdf plugins
+      ansible.builtin.command: /usr/local/bin/asdf plugin list
+      environment: "{{ verify_env }}"
+      register: verify_asdf_plugins
+      changed_when: false
+
+    - name: Assert every plugin is installed
+      ansible.builtin.assert:
+        that:
+          - item.name in verify_asdf_plugins.stdout
+      loop: "{{ asdf_tools }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Check toolchain versions through shims
+      ansible.builtin.command: "{{ asdf_data_dir }}/shims/{{ item.cmd }}"
+      environment: "{{ verify_env }}"
+      register: verify_shims
+      changed_when: false
+      loop:
+        - { cmd: "node --version", expect: "v24.19.0" }
+        - { cmd: "npm --version", expect: "" }
+        - { cmd: "python --version", expect: "3.14.7" }
+        - { cmd: "java -version", expect: "25.0.4" }
+        - { cmd: "go version", expect: "go1.26.6" }
+        - { cmd: "rustc --version", expect: "1.97.1" }
+      loop_control:
+        label: "{{ item.cmd }}"
+
+    - name: Assert toolchain versions match pins
+      ansible.builtin.assert:
+        that:
+          - item.item.expect in (item.stdout + item.stderr)
+        fail_msg: "{{ item.item.cmd }} returned {{ item.stdout }} {{ item.stderr }}"
+      loop: "{{ verify_shims.results }}"
+      loop_control:
+        label: "{{ item.item.cmd }}"
+
+    - name: Read ~/.tool-versions
+      ansible.builtin.slurp:
+        src: "{{ ansible_facts['env']['HOME'] }}/.tool-versions"
+      register: verify_tool_versions
+
+    - name: Assert ~/.tool-versions pins every tool
+      ansible.builtin.assert:
+        that:
+          - (item.name + ' ' + item.version) in (verify_tool_versions.content | b64decode)
+      loop: "{{ asdf_tools }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Check claude installation
+      ansible.builtin.command: "{{ claude_bin }} --version"
+      changed_when: false
+
+    - name: Check codex installation
+      ansible.builtin.command: /usr/local/bin/codex --version
+      register: verify_codex
+      changed_when: false
+
+    - name: Assert codex version matches pin
+      ansible.builtin.assert:
+        that:
+          - codex_version in verify_codex.stdout
+
+    - name: Check devtools binaries
+      ansible.builtin.command: "{{ item }}"
+      changed_when: false
+      loop:
+        - "gh --version"
+        - "rg --version"
+        - "fdfind --version"
+        - "batcat --version"
+        - "jq --version"
+        - "htop --version"
+        - "tmux -V"
+        - "direnv version"
+        - "delta --version"
+        - "fzf --version"
+        - "/usr/local/bin/lazygit --version"
+
+    - name: Check fd and bat convenience links
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['env']['HOME'] }}/.local/bin/{{ item }}"
+      register: verify_links
+      loop:
+        - fd
+        - bat
+
+    - name: Assert fd and bat links exist
+      ansible.builtin.assert:
+        that:
+          - item.stat.islnk | default(false)
+        fail_msg: "~/.local/bin/{{ item.item }} symlink missing"
+      loop: "{{ verify_links.results }}"
+      loop_control:
+        label: "{{ item.item }}"

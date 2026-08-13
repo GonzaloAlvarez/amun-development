@@ -1,0 +1,9 @@
+---
+- name: Install asdf
+  ansible.builtin.import_tasks: install.yml
+
+- name: Install toolchain build dependencies
+  ansible.builtin.import_tasks: deps.yml
+
+- name: Install toolchains
+  ansible.builtin.import_tasks: tools.yml

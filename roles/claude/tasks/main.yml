@@ -1,0 +1,55 @@
+---
+- name: Check installed claude version
+  ansible.builtin.command: "{{ claude_bin }} --version"
+  register: claude_installed_check
+  changed_when: false
+  failed_when: false
+
+- name: Decide whether to install or update
+  ansible.builtin.set_fact:
+    claude_should_install: "{{ claude_installed_check.rc != 0 or
+                               (claude_version not in ['stable', 'latest'] and
+                                claude_version not in claude_installed_check.stdout) }}"
+
+- name: Ensure ~/.local/bin exists
+  ansible.builtin.file:
+    path: "{{ claude_bin | dirname }}"
+    state: directory
+    mode: "0755"
+  when: claude_should_install
+
+- name: Create download staging directory
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: claude
+  register: claude_stage
+  when: claude_should_install
+
+- name: Download claude installer
+  ansible.builtin.get_url:
+    url: "{{ claude_installer_url }}"
+    dest: "{{ claude_stage.path }}/install.sh"
+    mode: "0755"
+  when: claude_should_install
+
+- name: Run claude installer
+  ansible.builtin.command: "bash {{ claude_stage.path }}/install.sh {{ claude_version }}"
+  when: claude_should_install
+  changed_when: true
+
+- name: Clean up staging directory
+  ansible.builtin.file:
+    path: "{{ claude_stage.path }}"
+    state: absent
+  when: claude_should_install
+
+# The installer has been known to report success while leaving no binary
+# behind (anthropics/claude-code#20345) — a hard version check is the gate.
+- name: Verify claude installation
+  ansible.builtin.command: "{{ claude_bin }} --version"
+  register: claude_version_check
+  changed_when: false
+
+- name: Show claude version
+  ansible.builtin.debug:
+    msg: "{{ claude_version_check.stdout }}"

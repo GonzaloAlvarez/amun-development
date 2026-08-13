@@ -1,0 +1,126 @@
+---
+- name: Resolve default install directory when none provided
+  ansible.builtin.set_fact:
+    asdf_install_dir: "{{ '/opt/homebrew/bin' if (ansible_system == 'Darwin' and ansible_architecture == 'arm64') else '/usr/local/bin' }}"
+  when: asdf_install_dir | length == 0
+
+- name: Resolve asdf binary path and command environment
+  ansible.builtin.set_fact:
+    asdf_bin: "{{ asdf_install_dir }}/asdf"
+    asdf_cmd_env:
+      PATH: "{{ asdf_data_dir }}/shims:/opt/homebrew/bin:/usr/local/bin:{{ ansible_facts['env']['PATH'] }}"
+      ASDF_DATA_DIR: "{{ asdf_data_dir }}"
+
+- name: Install asdf via Homebrew (macOS)
+  community.general.homebrew:
+    name: asdf
+    state: present
+  when: ansible_facts['os_family'] == 'Darwin'
+
+- name: Install asdf binary (Linux)
+  when: ansible_facts['os_family'] in ['Debian', 'Archlinux']
+  block:
+    - name: Map ansible_architecture to release arch
+      ansible.builtin.set_fact:
+        asdf_release_arch: "{{ {'x86_64': 'amd64', 'amd64': 'amd64', 'aarch64': 'arm64', 'arm64': 'arm64'}[ansible_architecture] }}"
+
+    - name: Compose release artifact name
+      ansible.builtin.set_fact:
+        asdf_release_tarball: "asdf-v{{ asdf_version }}-linux-{{ asdf_release_arch }}.tar.gz"
+        asdf_release_url: "https://github.com/{{ asdf_repo }}/releases/download/v{{ asdf_version }}/asdf-v{{ asdf_version }}-linux-{{ asdf_release_arch }}.tar.gz"
+        asdf_release_api_url: "https://api.github.com/repos/{{ asdf_repo }}/releases/tags/v{{ asdf_version }}"
+
+    - name: Check installed asdf version
+      ansible.builtin.command: "{{ asdf_bin }} version"
+      register: asdf_installed_check
+      changed_when: false
+      failed_when: false
+
+    - name: Decide whether to install or update
+      ansible.builtin.set_fact:
+        asdf_should_install: "{{ asdf_installed_check.rc != 0 or asdf_version not in asdf_installed_check.stdout }}"
+
+    - name: Fetch release metadata for checksum
+      ansible.builtin.uri:
+        url: "{{ asdf_release_api_url }}"
+        return_content: true
+      register: asdf_release_meta
+      when: asdf_should_install
+
+    - name: Read expected checksum for this artifact
+      ansible.builtin.set_fact:
+        asdf_expected_digest: "{{ asdf_release_meta.json.assets
+                                  | selectattr('name', 'equalto', asdf_release_tarball)
+                                  | map(attribute='digest') | first | default('') }}"
+      when: asdf_should_install
+
+    - name: Verify checksum digest was found
+      ansible.builtin.assert:
+        that:
+          - asdf_expected_digest is match('^sha256:[0-9a-f]{64}$')
+        fail_msg: "could not locate sha256 digest for {{ asdf_release_tarball }} in v{{ asdf_version }} release metadata"
+      when: asdf_should_install
+
+    - name: Create download staging directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: asdf
+      register: asdf_stage
+      when: asdf_should_install
+
+    - name: Download release tarball with checksum verification
+      ansible.builtin.get_url:
+        url: "{{ asdf_release_url }}"
+        dest: "{{ asdf_stage.path }}/{{ asdf_release_tarball }}"
+        checksum: "{{ asdf_expected_digest }}"
+        mode: "0644"
+      when: asdf_should_install
+
+    - name: Extract release tarball
+      ansible.builtin.command:
+        cmd: "tar -xzf {{ asdf_release_tarball }}"
+        chdir: "{{ asdf_stage.path }}"
+        creates: "{{ asdf_stage.path }}/asdf"
+      when: asdf_should_install
+
+    - name: Ensure install directory exists
+      ansible.builtin.file:
+        path: "{{ asdf_install_dir }}"
+        state: directory
+        mode: "0755"
+      become: true
+      when: asdf_should_install
+
+    - name: Install asdf binary
+      ansible.builtin.copy:
+        src: "{{ asdf_stage.path }}/asdf"
+        dest: "{{ asdf_bin }}"
+        mode: "0755"
+        remote_src: true
+      become: true
+      when: asdf_should_install
+
+    - name: Clean up staging directory
+      ansible.builtin.file:
+        path: "{{ asdf_stage.path }}"
+        state: absent
+      when: asdf_should_install
+
+- name: Wire asdf shims and user-local binaries into login shells (Linux)
+  ansible.builtin.copy:
+    src: profile-asdf.sh
+    dest: /etc/profile.d/asdf.sh
+    mode: "0644"
+  become: true
+  when:
+    - ansible_facts['os_family'] in ['Debian', 'Archlinux']
+    - asdf_manage_profile | bool
+
+- name: Verify asdf installation
+  ansible.builtin.command: "{{ asdf_bin }} version"
+  register: asdf_version_check
+  changed_when: false
+
+- name: Show asdf version
+  ansible.builtin.debug:
+    msg: "{{ asdf_version_check.stdout }}"

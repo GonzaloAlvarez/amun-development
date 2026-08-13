@@ -1,0 +1,8 @@
+---
+- name: Converge
+  hosts: all
+  roles:
+    - role: asdf
+    - role: claude
+    - role: codex
+    - role: devtools
