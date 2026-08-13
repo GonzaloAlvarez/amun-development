@@ -1,4 +1,10 @@
 ---
+- name: Ensure disk-backed asdf temp directory exists
+  ansible.builtin.file:
+    path: "{{ asdf_data_dir }}/tmp"
+    state: directory
+    mode: "0700"
+
 - name: Add asdf plugins
   ansible.builtin.command: "{{ asdf_bin }} plugin add {{ item.name }} {{ item.plugin_repo }}"
   args:

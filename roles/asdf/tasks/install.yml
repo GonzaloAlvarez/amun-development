@@ -7,9 +7,12 @@
 - name: Resolve asdf binary path and command environment
   ansible.builtin.set_fact:
     asdf_bin: "{{ asdf_install_dir }}/asdf"
+    # TMPDIR must be disk-backed: Debian 13 mounts /tmp as a small tmpfs and
+    # the CPython build (python-build works in $TMPDIR) needs several GB.
     asdf_cmd_env:
       PATH: "{{ asdf_data_dir }}/shims:/opt/homebrew/bin:/usr/local/bin:{{ ansible_facts['env']['PATH'] }}"
       ASDF_DATA_DIR: "{{ asdf_data_dir }}"
+      TMPDIR: "{{ asdf_data_dir }}/tmp"
 
 - name: Install asdf via Homebrew (macOS)
   community.general.homebrew:
