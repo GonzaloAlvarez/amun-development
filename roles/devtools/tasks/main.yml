@@ -15,11 +15,18 @@
   become: true
   when: ansible_facts['os_family'] == 'Debian'
 
-# Some hosts carry hand-added cli.github.com entries (wrong suite or a
-# different Signed-By path); a second entry for the same repo makes
-# `apt-get update` fail, so drop anything that is not the file we manage.
+# Some hosts carry hand-added cli.github.com entries (wrong suite — the repo
+# only publishes "stable" — or a different Signed-By); any broken entry makes
+# `apt-get update` fail wholesale. Drop every cli.github.com source that is
+# not the file we manage, and ours too if it carries a non-stable suite.
 - name: Find pre-existing GitHub CLI apt sources (Debian)
-  ansible.builtin.shell: "grep -l 'cli.github.com' /etc/apt/sources.list.d/* 2>/dev/null | grep -v '/github-cli.list$' || true"
+  ansible.builtin.shell: |
+    for f in /etc/apt/sources.list.d/*; do
+      grep -qs 'cli\.github\.com' "$f" || continue
+      if [ "$f" != "/etc/apt/sources.list.d/github-cli.list" ] || grep 'cli\.github\.com/packages' "$f" | grep -qv 'packages stable'; then
+        echo "$f"
+      fi
+    done
   register: devtools_stale_gh_sources
   changed_when: false
   when: ansible_facts['os_family'] == 'Debian'

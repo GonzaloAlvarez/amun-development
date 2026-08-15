@@ -1,7 +1,11 @@
 ---
+# devtools runs first: it reconciles broken/conflicting third-party apt
+# sources (cli.github.com) and a broken source makes EVERY later apt task
+# fail wholesale — asdf's build-deps install would die before devtools
+# ever got the chance to clean up.
 - hosts: all
   roles:
+    - { role: devtools, become: false }
     - { role: asdf, become: false }
     - { role: claude, become: false }
     - { role: codex, become: false }
-    - { role: devtools, become: false }
